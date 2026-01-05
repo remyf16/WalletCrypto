@@ -14,9 +14,14 @@ const AVAILABLE_COINS = [
 ];
 
 const App = () => {
-  // --- 1. ÉTATS AVEC PERSISTANCE ---
-  
-  // Initialisation lazy : on lit le localStorage au démarrage
+  // --- GESTION CLE API ---
+  const API_KEY = import.meta.env.VITE_COINGECKO_API_KEY;
+
+  const axiosConfig = {
+    headers: API_KEY ? { 'x-cg-demo-api-key': API_KEY } : {}
+  };
+
+  // --- 1. ÉTATS ---
   const [transactions, setTransactions] = useState(() => {
     const saved = localStorage.getItem('crypto_wallet_tx');
     return saved ? JSON.parse(saved) : [];
@@ -24,7 +29,7 @@ const App = () => {
 
   const [selectedCoin, setSelectedCoin] = useState(AVAILABLE_COINS[0].id);
   const [chartData, setChartData] = useState([]);
-  const [currentPrices, setCurrentPrices] = useState({}); // Pour stocker les prix actuels de toutes les coins
+  const [currentPrices, setCurrentPrices] = useState({}); 
   const [loadingGraph, setLoadingGraph] = useState(false);
   
   const [form, setForm] = useState({
@@ -34,36 +39,37 @@ const App = () => {
     date: new Date().toISOString().split('T')[0]
   });
 
-  // --- 2. EFFETS (Side Effects) ---
+  // --- 2. EFFETS ---
 
-  // Sauvegarde automatique dans le LocalStorage à chaque changement de 'transactions'
+  // Sauvegarde localStorage
   useEffect(() => {
     localStorage.setItem('crypto_wallet_tx', JSON.stringify(transactions));
   }, [transactions]);
 
-  // Récupération des prix actuels (pour le calcul PnL de la liste)
+  // Récupération des prix actuels (PnL)
   useEffect(() => {
     const fetchCurrentPrices = async () => {
       try {
         const ids = AVAILABLE_COINS.map(c => c.id).join(',');
         const response = await axios.get(`https://api.coingecko.com/api/v3/simple/price`, {
+          ...axiosConfig,
           params: { ids: ids, vs_currencies: 'usd' }
         });
         setCurrentPrices(response.data);
       } catch (error) {
-        console.error("Erreur récupération prix actuels:", error);
+        console.error("Erreur prix:", error);
       }
     };
     fetchCurrentPrices();
-    // Optionnel : On pourrait mettre un intervalle ici pour rafraichir toutes les 60sec
   }, []);
 
-  // Chargement des données historiques pour le GRAPHIQUE
+  // Récupération du graphique (C'est ici que tu avais l'erreur)
   useEffect(() => {
     const fetchMarketData = async () => {
       setLoadingGraph(true);
       try {
         const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${selectedCoin}/market_chart`, {
+          ...axiosConfig,
           params: { vs_currency: 'usd', days: '365', interval: 'daily' }
         });
         
@@ -82,7 +88,7 @@ const App = () => {
     };
 
     fetchMarketData();
-  }, [selectedCoin]);
+  }, [selectedCoin]); // Dépendance: relance quand on change de crypto
 
   // --- 3. GESTIONNAIRES ---
 
@@ -103,7 +109,7 @@ const App = () => {
     setTransactions(transactions.filter(t => t.id !== id));
   };
 
-  // --- 4. LOGIQUE PnL (Profit and Loss) ---
+  // --- 4. LOGIQUE PnL ---
   const getPnLData = (tx) => {
     const currentPrice = currentPrices[tx.coinId]?.usd;
     if (!currentPrice) return null;
@@ -127,7 +133,6 @@ const App = () => {
     
     return relevantTx.map(tx => {
       const txTime = new Date(tx.date).getTime();
-      // Trouve le point le plus proche dans l'historique
       const closestPoint = chartData.reduce((prev, curr) => 
         Math.abs(curr.date - txTime) < Math.abs(prev.date - txTime) ? curr : prev
       , chartData[0]);
@@ -152,7 +157,6 @@ const App = () => {
             <p className="text-slate-400 text-sm">Suivi PnL & Historique</p>
           </div>
         </div>
-        {/* Petit indicateur de sauvegarde */}
         <div className="hidden md:flex items-center gap-2 text-xs text-green-400 bg-green-400/10 px-3 py-1 rounded-full border border-green-400/20">
           <Save size={14} /> Auto-save active
         </div>
@@ -162,8 +166,6 @@ const App = () => {
         
         {/* GAUCHE : Formulaire & Liste */}
         <div className="lg:col-span-1 space-y-6">
-          
-          {/* Formulaire */}
           <div className="bg-slate-800/80 backdrop-blur p-6 rounded-2xl border border-slate-700 shadow-xl">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-blue-400">
               <PlusCircle size={20} /> Ajouter Transaction
@@ -216,46 +218,35 @@ const App = () => {
             </form>
           </div>
 
-          {/* Liste des transactions avec PnL */}
           <div className="bg-slate-800/80 backdrop-blur p-6 rounded-2xl border border-slate-700 shadow-xl max-h-[500px] overflow-y-auto custom-scrollbar">
             <h3 className="text-lg font-semibold mb-4 text-slate-200">Portefeuille</h3>
-            
             <div className="space-y-3">
               {transactions.length === 0 && (
                 <div className="text-center py-8 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
                   Aucune transaction enregistrée.
                 </div>
               )}
-              
               {transactions.slice().reverse().map(tx => {
                 const coin = AVAILABLE_COINS.find(c => c.id === tx.coinId);
-                const pnl = getPnLData(tx); // Calcul du PnL
-
+                const pnl = getPnLData(tx); 
                 return (
                   <div key={tx.id} className="group relative bg-slate-900/50 hover:bg-slate-900 p-4 rounded-xl border border-slate-700/50 transition-all hover:border-slate-600">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
-                         {/* Badge Symbole */}
                         <span className="bg-slate-800 text-blue-400 font-bold px-2 py-0.5 rounded text-sm border border-slate-700">
                           {coin?.symbol}
                         </span>
                         <span className="text-xs text-slate-500">{tx.date}</span>
                       </div>
-                      <button 
-                        onClick={() => removeTransaction(tx.id)} 
-                        className="text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                      >
+                      <button onClick={() => removeTransaction(tx.id)} className="text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
                         <Trash2 size={16} />
                       </button>
                     </div>
-
                     <div className="flex justify-between items-end">
                       <div>
                         <div className="text-white font-medium">{tx.amount} unités</div>
                         <div className="text-xs text-slate-400">Acheté à ${tx.price}</div>
                       </div>
-
-                      {/* Section PnL */}
                       <div className="text-right">
                         {pnl ? (
                           <>
@@ -287,7 +278,6 @@ const App = () => {
                 <TrendingUp className="text-blue-400" /> 
                 Analyse {AVAILABLE_COINS.find(c => c.id === selectedCoin)?.name}
               </h2>
-              
               <div className="flex items-center gap-2 bg-slate-900 p-1 rounded-lg border border-slate-700">
                 {AVAILABLE_COINS.map(c => (
                   <button
@@ -353,8 +343,6 @@ const App = () => {
                       activeDot={{ r: 8, strokeWidth: 0 }}
                       fill="url(#colorPrice)"
                     />
-                    
-                    {/* Points d'achat sur le graphique */}
                     {purchasePoints.map((point, index) => (
                       <ReferenceDot
                         key={index}
@@ -371,7 +359,6 @@ const App = () => {
                 </ResponsiveContainer>
               </div>
             )}
-            
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
                <span className="w-3 h-3 rounded-full bg-green-500 border-2 border-slate-900 block"></span>
                Vos achats sont marqués par des points verts sur la courbe.
